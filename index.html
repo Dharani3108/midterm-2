@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Speech‑to‑Text Pad</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { margin: 0; padding: 2rem; background: #0f172a; color: #e5e7eb; }
+    h1 { margin-top: 0; }
+    .app {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #020617;
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      border: 1px solid #1e293b;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+      align-items: center;
+    }
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 0.5rem 1.2rem;
+      font-size: 0.95rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.15s ease;
+    }
+    button:active {
+      transform: translateY(1px);
+      box-shadow: none;
+    }
+    .btn-primary {
+      background: #22c55e;
+      color: #022c22;
+      box-shadow: 0 10px 25px rgba(34,197,94,0.35);
+    }
+    .btn-primary.listening {
+      background: #ef4444;
+      color: #fef2f2;
+      box-shadow: 0 10px 25px rgba(239,68,68,0.4);
+    }
+    .btn-secondary {
+      background: #1e293b;
+      color: #e5e7eb;
+    }
+    .status {
+      font-size: 0.85rem;
+      color: #9ca3af;
+    }
+    .status strong { color: #f97316; }
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      border-radius: 10px;
+      border: 1px solid #1f2937;
+      padding: 0.75rem;
+      background: #020617;
+      color: #e5e7eb;
+      font-size: 0.98rem;
+      outline: none;
+      box-shadow: inset 0 0 0 1px #020617;
+    }
+    textarea:focus {
+      border-color: #22c55e;
+      box-shadow: 0 0 0 1px #22c55e55;
+    }
+    .notes {
+      margin-top: 1.5rem;
+      border-top: 1px solid #111827;
+      padding-top: 1rem;
+    }
+    .notes h2 {
+      font-size: 1.1rem;
+      margin-bottom: 0.75rem;
+    }
+    .note-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    .note {
+      background: #020617;
+      border-radius: 10px;
+      padding: 0.75rem 0.9rem;
+      border: 1px solid #1f2937;
+    }
+    .note-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.35rem;
+      font-size: 0.8rem;
+      color: #9ca3af;
+    }
+    .note-time { opacity: 0.9; }
+    .note-index {
+      font-size: 0.75rem;
+      padding: 0.08rem 0.45rem;
+      border-radius: 999px;
+      background: #22c55e22;
+      color: #bbf7d0;
+      border: 1px solid #16a34a55;
+    }
+    .note-body {
+      font-size: 0.9rem;
+      white-space: pre-wrap;
+      color: #e5e7eb;
+    }
+    .warning {
+      padding: 0.6rem 0.8rem;
+      border-radius: 8px;
+      background: #1e293b;
+      color: #fbbf24;
+      font-size: 0.8rem;
+      margin-bottom: 0.75rem;
+      display: none;
+    }
+    .warning.visible { display: block; }
+    @media (max-width: 640px) {
+      body { padding: 1rem; }
+      .controls { flex-direction: column; align-items: stretch; }
+      .controls button { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>🎙️ Speech‑to‑Text Pad</h1>
+    <p class="status">
+      Click <strong>Start Listening</strong>, speak, watch the text appear, then save it as a note.
+    </p>
+
+    <div id="support-warning" class="warning">
+      Your browser does not support the SpeechRecognition API. Try Chrome or another Chromium‑based browser.
+    </div>
+
+    <div class="controls">
+      <button id="toggle-btn" class="btn-primary">
+        <span id="mic-icon">🎤</span>
+        <span id="toggle-label">Start Listening</span>
+      </button>
+      <button id="stop-btn" class="btn-secondary" disabled>Stop Listening</button>
+      <button id="save-btn" class="btn-secondary">Save Note</button>
+      <span id="live-status" class="status"></span>
+    </div>
+
+    <textarea id="pad" placeholder="Your live speech‑to‑text will appear here..."></textarea>
+
+    <div class="notes">
+      <h2>Saved Notes</h2>
+      <ul id="note-list" class="note-list"></ul>
+    </div>
+  </div>
+
+  <script>
+    // Feature detection: SpeechRecognition / webkitSpeechRecognition
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    const supportWarning = document.getElementById('support-warning');
+    const toggleBtn = document.getElementById('toggle-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const toggleLabel = document.getElementById('toggle-label');
+    const micIcon = document.getElementById('mic-icon');
+    const liveStatus = document.getElementById('live-status');
+    const pad = document.getElementById('pad');
+    const saveBtn = document.getElementById('save-btn');
+    const noteList = document.getElementById('note-list');
+
+    let recognition = null;
+    let listening = false;
+    const notes = [];
+
+    if (!SpeechRecognition) {
+      supportWarning.classList.add('visible');
+      toggleBtn.disabled = true;
+      stopBtn.disabled = true;
+    } else {
+      recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.addEventListener('result', (event) => {
+        let text = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          text += event.results[i][0].transcript;
+        }
+        pad.value = text;
+      });
+
+      recognition.addEventListener('start', () => {
+        listening = true;
+        toggleBtn.classList.add('listening');
+        toggleLabel.textContent = 'Listening...';
+        micIcon.textContent = '🔴';
+        stopBtn.disabled = false;
+        liveStatus.textContent = 'Listening – speak now.';
+      });
+
+      recognition.addEventListener('end', () => {
+        listening = false;
+        toggleBtn.classList.remove('listening');
+        toggleLabel.textContent = 'Start Listening';
+        micIcon.textContent = '🎤';
+        stopBtn.disabled = true;
+        liveStatus.textContent = 'Not listening.';
+      });
+
+      recognition.addEventListener('error', (event) => {
+        liveStatus.textContent = 'Error: ' + event.error;
+      });
+
+      toggleBtn.addEventListener('click', () => {
+        if (!listening) {
+          pad.value = '';
+          recognition.start();
+        } else {
+          recognition.stop();
+        }
+      });
+
+      stopBtn.addEventListener('click', () => {
+        if (listening) {
+          recognition.stop();
+        }
+      });
+    }
+
+    function renderNotes() {
+      noteList.innerHTML = '';
+      if (!notes.length) {
+        const empty = document.createElement('li');
+        empty.className = 'note';
+        empty.textContent = 'No notes yet. Speak and click "Save Note" to create one.';
+        noteList.appendChild(empty);
+        return;
+      }
+      notes.forEach((note, index) => {
+        const li = document.createElement('li');
+        li.className = 'note';
+
+        const header = document.createElement('div');
+        header.className = 'note-header';
+
+        const time = document.createElement('span');
+        time.className = 'note-time';
+        time.textContent = note.time;
+
+        const idx = document.createElement('span');
+        idx.className = 'note-index';
+        idx.textContent = `#${index + 1}`;
+
+        header.appendChild(time);
+        header.appendChild(idx);
+
+        const body = document.createElement('div');
+        body.className = 'note-body';
+        body.textContent = note.text;
+
+        li.appendChild(header);
+        li.appendChild(body);
+        noteList.appendChild(li);
+      });
+    }
+
+    saveBtn.addEventListener('click', () => {
+      const text = pad.value.trim();
+      if (!text) {
+        liveStatus.textContent = 'Cannot save an empty note.';
+        return;
+      }
+      const time = new Date().toLocaleString();
+      notes.unshift({ text, time });
+      pad.value = '';
+      liveStatus.textContent = 'Note saved.';
+      renderNotes();
+    });
+
+    renderNotes();
+  </script>
+</body>
+</html>
